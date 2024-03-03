@@ -35,6 +35,8 @@ def shift_out(data_pin, clock_pin, latch_pin, data):
     latch_pin.off()
 
 
+
+
 def display_digit(digit):
     shift_out(data_pin, clock_pin, latch_pin, segments[digit])
 
