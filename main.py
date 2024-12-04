@@ -1,65 +1,40 @@
-import machine
-import utime
+from machine import Pin
+import time
 
-# Define pin numbers for shift registers
-data_pin = machine.Pin(0, machine.Pin.OUT)  # Connect to SER
-clock_pin = machine.Pin(1, machine.Pin.OUT)  # Connect to SRCLK
-latch_pin = machine.Pin(2, machine.Pin.OUT)  # Connect to RCLK
-
-# Define pins for ZS-042 RTC module (I2C)
-i2c = machine.I2C(0, scl=machine.Pin(9), sda=machine.Pin(8))
-rtc_address = 0x68
-
-# Define the segments for the 7-segment display
-segments = [
-    0b00111111,  # 0
-    0b00000110,  # 1
-    0b01011011,  # 2
-    0b01001111,  # 3
-    0b01100110,  # 4
-    0b01101101,  # 5
-    0b01111101,  # 6
-    0b00000111,  # 7
-    0b01111111,  # 8
-    0b01101111,  # 9
-]
+# Define GPIO pins for the 74HC595
+data_pin = Pin(14, Pin.OUT)  # Data pin (DS)
+clock_pin = Pin(13, Pin.OUT)  # Shift clock pin (SH_CP)
+latch_pin = Pin(12, Pin.OUT)  # Latch pin (ST_CP)
 
 
-def shift_out(data_pin, clock_pin, latch_pin, data):
-    for _ in range(8):
-        data_pin.value((data >> 7) & 1)
-        data <<= 1
-        clock_pin.on()
-        clock_pin.off()
-    latch_pin.on()
-    latch_pin.off()
+def shift_out(data):
+    """Shift out 8 bits of data to the 74HC595."""
+    for i in range(8):
+        bit = (data >> (7 - i)) & 1  # Extract the MSB first
+        data_pin.value(bit)  # Set data pin
+        clock_pin.value(1)  # Pulse clock to shift bit
+        clock_pin.value(0)
 
 
+def turn_on_all_segments():
+    """
+    Turn on all segments of all four 7-segment indicators.
+    """
+    latch_pin.value(0)  # Lower latch to prepare for new data
+
+    # Send data for all 4 displays (4 bytes of all segments on)
+    for _ in range(4):  # 4 indicators
+        shift_out(0b11111111)  # All segments ON (for common cathode)
+
+    latch_pin.value(1)  # Latch to display data
 
 
-def display_digit(digit):
-    shift_out(data_pin, clock_pin, latch_pin, segments[digit])
+def main():
+    while True:
+        turn_on_all_segments()  # Turn on all segments
+        #time.sleep(0.5)  # Keep it on for 1 second (adjust as needed)
 
 
-while True:
-    # Read time from ZS-042 RTC module
-    try:
-        i2c.writeto(rtc_address, bytes([0x00]))
-        time_data = i2c.readfrom(rtc_address, 7)
-        hour, minute, second = (
-            int(time_data[2]),
-            int(time_data[1]),
-            int(time_data[0]),
-        )
-    except OSError:
-        continue
-
-    # Display time on 7-segment displays
-    display_digit(hour // 10)
-    utime.sleep(0.001)
-    display_digit(hour % 10)
-    utime.sleep(0.001)
-    display_digit(minute // 10)
-    utime.sleep(0.001)
-    display_digit(minute % 10)
-    utime.sleep(0.001)
+# Run the main program
+if __name__ == "__main__":
+    main()
