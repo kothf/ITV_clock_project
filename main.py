@@ -2,6 +2,7 @@ from machine import Pin
 import time
 
 # Define GPIO pins for the 74HC595
+# Another try to run this script on Thonny
 data_pin = Pin(14, Pin.OUT)  # Data pin (DS)
 clock_pin = Pin(13, Pin.OUT)  # Shift clock pin (SH_CP)
 latch_pin = Pin(12, Pin.OUT)  # Latch pin (ST_CP)
