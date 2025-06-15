@@ -5,6 +5,7 @@
    - Translates each digit to its 7-segment pattern (common-cathode: HIGH = LED ON).
    - Shifts the four patterns out MSB-first to the shift-register chain.
    - Keeps displaying the number until new input arrives.
+   Fisrt working Arduino version
 */
 
 // ─── Pin assignments (change if you wired them differently) ──────────────
