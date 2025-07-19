@@ -1,19 +1,9 @@
-/*
-   4-digit 7-segment display driven by four cascaded 74HC595 shift registers.
-   ─────────────────────────────────────────────────────────────────────────
-   - Accepts a 4-digit number over the Serial monitor (e.g. 1234).
-   - Translates each digit to its 7-segment pattern (common-cathode: HIGH = LED ON).
-   - Shifts the four patterns out MSB-first to the shift-register chain.
-   - Keeps displaying the number until new input arrives.
-   Fisrt working Arduino version
-*/
+// ─── Pin assignments ─────────────────────────────────────────────────────
+const uint8_t DATA_PIN  = 8;
+const uint8_t CLOCK_PIN = 12;
+const uint8_t LATCH_PIN = 11;
 
-// ─── Pin assignments (change if you wired them differently) ──────────────
-const uint8_t DATA_PIN  = 8;   // DS  of first 74HC595
-const uint8_t CLOCK_PIN = 12;  // SH_CP
-const uint8_t LATCH_PIN = 11;  // ST_CP
-
-// ─── Segment patterns for digits 0-9 (gfedcba) ───────────────────────────
+// ─── Segment patterns for digits 0–9 (gfedcba) ──────────────────────────
 const uint8_t digitToSegment[10] = {
   0b00111111,  // 0
   0b00000110,  // 1
@@ -27,11 +17,14 @@ const uint8_t digitToSegment[10] = {
   0b01101111   // 9
 };
 
-// ─── Globals ─────────────────────────────────────────────────────────────
-uint8_t segments[4] = {0, 0, 0, 0};   // current patterns to show
-bool     newNumber  = true;           // flag: need fresh user input?
+// ─── Global Variables ────────────────────────────────────────────────────
+uint8_t segments[4] = {0, 0, 0, 0};  // Current segment patterns
+int hour = 0, minute = 0;
+bool timeSet = false;
 
-// ─── Helper: send 4 bytes (MSB-first) to 74HC595 chain ───────────────────
+unsigned long lastUpdateMillis = 0;  // For tracking passing minutes
+
+// ─── Helper: send 4 bytes (MSB-first) to 74HC595 chain ──────────────────
 void shiftOut4(const uint8_t bytesOut[4])
 {
   digitalWrite(LATCH_PIN, LOW);
@@ -41,7 +34,21 @@ void shiftOut4(const uint8_t bytesOut[4])
   digitalWrite(LATCH_PIN, HIGH);
 }
 
-// ─── Setup ───────────────────────────────────────────────────────────────
+// ─── Helper: update segments[] from current hour and minute ─────────────
+void updateSegmentsFromTime()
+{
+  int h1 = hour / 10;
+  int h2 = hour % 10;
+  int m1 = minute / 10;
+  int m2 = minute % 10;
+
+  segments[0] = digitToSegment[h1];
+  segments[1] = digitToSegment[h2];
+  segments[2] = digitToSegment[m1];
+  segments[3] = digitToSegment[m2];
+}
+
+// ─── Setup ──────────────────────────────────────────────────────────────
 void setup()
 {
   pinMode(DATA_PIN,  OUTPUT);
@@ -49,40 +56,59 @@ void setup()
   pinMode(LATCH_PIN, OUTPUT);
 
   Serial.begin(9600);
-  Serial.println(F("Enter 4 digits (e.g. 1234) then press ⏎"));
+  Serial.println(F("Set time in HHMM format (e.g. 0930 for 9:30):"));
 }
 
-// ─── Main loop ───────────────────────────────────────────────────────────
+// ─── Main loop ──────────────────────────────────────────────────────────
 void loop()
 {
-  // ── 1. If we need new input, poll Serial until we get exactly 4 digits ──
-  if (newNumber) {
-    if (Serial.available()) {
-      String line = Serial.readStringUntil('\n');
-      line.trim();
-      if (line.length() == 4 && line.charAt(0) >= '0' && line.charAt(0) <= '9'
-                              && line.charAt(1) >= '0' && line.charAt(1) <= '9'
-                              && line.charAt(2) >= '0' && line.charAt(2) <= '9'
-                              && line.charAt(3) >= '0' && line.charAt(3) <= '9') {
-        for (uint8_t i = 0; i < 4; ++i) {
-          segments[i] = digitToSegment[line.charAt(i) - '0'];
-        }
-        newNumber = false;          // ready to display
-        Serial.println(F("Displaying…  (enter new digits any time)"));
+  // ── 1. Wait for initial input ─────────────────────────────────────────
+  if (!timeSet && Serial.available()) {
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+
+    if (line.length() == 4 &&
+        isDigit(line.charAt(0)) &&
+        isDigit(line.charAt(1)) &&
+        isDigit(line.charAt(2)) &&
+        isDigit(line.charAt(3))) {
+      
+      int h = (line.charAt(0) - '0') * 10 + (line.charAt(1) - '0');
+      int m = (line.charAt(2) - '0') * 10 + (line.charAt(3) - '0');
+
+      if (h >= 0 && h <= 23 && m >= 0 && m <= 59) {
+        hour = h;
+        minute = m;
+        updateSegmentsFromTime();
+        shiftOut4(segments);
+        lastUpdateMillis = millis();
+        timeSet = true;
+        Serial.println(F("Clock started."));
       } else {
-        Serial.println(F("Invalid input – please type exactly 4 digits."));
+        Serial.println(F("Invalid time. Enter HHMM (0000–2359):"));
       }
+    } else {
+      Serial.println(F("Invalid input. Enter 4 digits in HHMM format."));
     }
   }
 
-  // ── 2. Continuously refresh the display (74HC595 latches output) ───────
-  if (!newNumber) {
+  // ── 2. Update display every ~1 second (optional fade) ─────────────────
+  if (timeSet) {
     shiftOut4(segments);
-    delay(50);                      // ~20 FPS; adjust if needed
-  }
+    delay(50); // Smooth refresh
 
-  // ── 3. Check if user typed something new while we were displaying ──────
-  if (Serial.available()) {
-    newNumber = true;               // next loop iteration will read it
+    // ── 3. Update time every minute ─────────────────────────────────────
+    if (millis() - lastUpdateMillis >= 60000UL) {
+      lastUpdateMillis += 60000UL;
+      minute++;
+      if (minute >= 60) {
+        minute = 0;
+        hour++;
+        if (hour >= 24) {
+          hour = 0;
+        }
+      }
+      updateSegmentsFromTime();
+    }
   }
 }
